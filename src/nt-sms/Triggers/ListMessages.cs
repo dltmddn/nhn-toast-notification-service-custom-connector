@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 
+using Aliencube.AzureFunctions.Extensions.Common;
+
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.WebJobs;
@@ -13,11 +15,11 @@ using Microsoft.Azure.WebJobs.Extensions.OpenApi.Core.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 
-using Newtonsoft.Json;
-using SmartFormat;
 using Toast.Common.Configurations;
+using Toast.Common.Models;
+using Toast.Common.Validators;
+using Toast.Sms.Bulder;
 using Toast.Sms.Configurations;
-using Toast.Sms.Models;
 
 
 namespace Toast.Sms.Triggers
@@ -63,36 +65,19 @@ namespace Toast.Sms.Triggers
         {
             _logger.LogInformation("C# HTTP trigger function processed a request.");
 
-            var appKey = req.Headers["x-app-key"].ToString();
-            var secretKey = req.Headers["x-secreet-key"].ToString();
-            var baseUrl = this._settings.BaseUrl;
-            var version = this._settings.Version;
-            var endpoint = this._settings.Endpoints.ListMessages;
-            var options = new ListMessagesOptions()
+            var headers = default(RequestHeaderModel);
+            try
             {
-                Version = version,
-                AppKey = appKey,
-                RequestId = req.Query["requestId"].ToString(),
-                StartRequestDate = req.Query["startRequestDate"].ToString(),
-                EndRequestDate = req.Query["endRequestDate"].ToString(),
-                StartCreateDate = req.Query["startCreateDate"].ToString(),
-                EndCreateDate = req.Query["endCreateDate"].ToString(),
-                StartResultDate = req.Query["startResultDate"].ToString(),
-                EndResultDate = req.Query["endResultDate"].ToString(),
-                SendNo = req.Query["sendNo"].ToString(),
-                RecipientNo = req.Query["recipientNo"].ToString(),
-                TemplateId = req.Query["templateId"].ToString(),
-                MsgStatus = req.Query["msgStatus"].ToString(),
-                ResultCode = req.Query["resultCode"].ToString(),
-                SubResultCode = req.Query["subResultCode"].ToString(),
-                SenderGroupingKey = req.Query["senderGroupingKey"].ToString(),
-                RecipientGroupingKey = req.Query["recipientGroupingKey"].ToString(),
-                PageNum = int.TryParse(req.Query["pageNum"].ToString(), out int pageNumParse) ? pageNumParse : 1,
-                PageSize = int.TryParse(req.Query["pageSize"].ToString(), out int pageSizeParse) ? pageSizeParse : 15         
-            };
-            var requestUrl = this._settings.Formatter.Format($"{baseUrl.TrimEnd('/')}/{endpoint.TrimStart('/')}", options);
+                headers = await req.To<RequestHeaderModel>(SourceFrom.Header).Validate().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return new BadRequestResult();
+            }
+            
+            var requestUrl = new ListMessagesRequestUrlBuilder().WithSettings(this._settings).WithHeaders(headers).WithQueries(req).Build();
 
-            this._http.DefaultRequestHeaders.Add("X-Secret-Key", secretKey);
+            this._http.DefaultRequestHeaders.Add("X-Secret-Key", headers.SecretKey);
             var result = await this._http.GetAsync(requestUrl).ConfigureAwait(false);
 
             var payload = await result.Content.ReadAsAsync<object>().ConfigureAwait(false);

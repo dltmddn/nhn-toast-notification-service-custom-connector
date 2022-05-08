@@ -5,20 +5,44 @@ using System.Threading.Tasks;
 using FluentAssertions;
 
 using Microsoft.Azure.WebJobs.Extensions.OpenApi.Configurations.AppSettings.Extensions;
+using Microsoft.Azure.WebJobs.Extensions.OpenApi.Core.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-using SmartFormat;
+using Toast.Common.Configurations;
+using Toast.Common.Models;
+using Toast.Sms.Bulder;
+using Toast.Sms.Configurations;
+using Toast.Sms.Models;
+using Toast.Sms.Tests.Configurations;
+using Toast.Tests.Common.Configurations;
 
 using WorldDomination.Net.Http;
-
-using Toast.Sms.Models;
 
 namespace Toast.Sms.Tests.Triggers
 {
     [TestClass]
     public class GetMessageTests
     {
+        private RequestHeaderModel _headers;
+        private ToastTestSettings<SmsEndpointSettings, SmsExamplesSettings> _settings;
+
+        [TestInitialize]
+        public void TestInit()
+        {
+            if (!this._headers.IsNullOrDefault() && !this._settings.IsNullOrDefault())
+            {
+                return;
+            }
+
+            var config = new ConfigurationBuilder().AddJsonFile("test.settings.json").Build();
+            var headers = config.Get<RequestHeaderModel>(ToastSettings.Name);
+            var settings = config.Get<ToastTestSettings<SmsEndpointSettings, SmsExamplesSettings>>(ToastSettings.Name);
+
+            this._headers = headers;
+            this._settings = settings;
+        }
+
         [TestCategory("Integration")]
         [DataTestMethod]
         [DataRow(false, null, false)]
@@ -29,26 +53,16 @@ namespace Toast.Sms.Tests.Triggers
         public async Task Given_Parameters_When_GetMessage_Invoked_Then_It_Should_Return_Result(bool useRequestId, int? recipientSeq, bool expected)
         {
             // Arrange
-            var config = new ConfigurationBuilder().AddJsonFile("test.settings.json").Build();
-            var appKey = config.GetValue<string>("Toast:AppKey");
-            var secretKey = config.GetValue<string>("Toast:SecretKey");
-            var baseUrl = config.GetValue<string>("Toast:BaseUrl");
-            var version = config.GetValue<string>("Toast:Version");
-            var endpoint = config.GetValue<string>("Toast:Endpoints:GetMessage");
-            var requestId = useRequestId ? config.GetValue<string>("Toast:Examples:RequestId") : null;
-            var options = new GetMessageRequestUrlOptions()
-            {
-                Version = version,
-                AppKey = appKey,
-                RequestId = requestId,
-                RecipientSeq = recipientSeq
-            };
-            var requestUrl = Smart.Format($"{baseUrl.TrimEnd('/')}/{endpoint.TrimStart('/')}", options);
+            GetMessageRequestUrlBuilder bulder = new GetMessageRequestUrlBuilder().WithSettings(this._settings).WithHeaders(this._headers);
+            bulder._options.RequestId = useRequestId ? this._settings.Examples.RequestId : null;
+            bulder._options.RecipientSeq = recipientSeq;
+
+            var requestUrl = bulder.Build();
 
             var http = new HttpClient();
 
             // Act
-            http.DefaultRequestHeaders.Add("X-Secret-Key", secretKey);
+            http.DefaultRequestHeaders.Add("X-Secret-Key", this._headers.SecretKey);
             var result = await http.GetAsync(requestUrl).ConfigureAwait(false);
 
             dynamic payload = await result.Content.ReadAsAsync<object>().ConfigureAwait(false);

@@ -5,20 +5,43 @@ using System.Threading.Tasks;
 using FluentAssertions;
 
 using Microsoft.Azure.WebJobs.Extensions.OpenApi.Configurations.AppSettings.Extensions;
+using Microsoft.Azure.WebJobs.Extensions.OpenApi.Core.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-using SmartFormat;
+using Toast.Common.Configurations;
+using Toast.Common.Models;
+using Toast.Sms.Configurations;
+using Toast.Sms.Bulder;
+using Toast.Sms.Tests.Configurations;
+using Toast.Tests.Common.Configurations;
 
 using WorldDomination.Net.Http;
-
-using Toast.Sms.Models;
 
 namespace Toast.Sms.Tests.Triggers
 {
     [TestClass]
     public class ListMessagesTests
     {
+        private RequestHeaderModel _headers;
+        private ToastTestSettings<SmsEndpointSettings, SmsExamplesSettings> _settings;
+
+        [TestInitialize]
+        public void TestInit()
+        {
+            if (!this._headers.IsNullOrDefault() && !this._settings.IsNullOrDefault())
+            {
+                return;
+            }
+
+            var config = new ConfigurationBuilder().AddJsonFile("test.settings.json").Build();
+            var headers = config.Get<RequestHeaderModel>(ToastSettings.Name);
+            var settings = config.Get<ToastTestSettings<SmsEndpointSettings, SmsExamplesSettings>>(ToastSettings.Name);
+
+            this._headers = headers;
+            this._settings = settings;
+        }
+
         [TestCategory("Integration")]
         [DataTestMethod]
         [DataRow(false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, false)]
@@ -68,41 +91,29 @@ namespace Toast.Sms.Tests.Triggers
             string startResultDate, string endResultDate, string sendNo, string recipientNo, string templateId, string msgStatus, string resultCode, string subResultCode, string senderGroupingKey, string recipientGroupingKey, int? pageNum, int? pageSize, bool expected)
         {
             // Arrange
-            var config = new ConfigurationBuilder().AddJsonFile("test.settings.json").Build();
-            var appKey = config.GetValue<string>("Toast:AppKey");
-            var secretKey = config.GetValue<string>("Toast:SecretKey");
-            var baseUrl = config.GetValue<string>("Toast:BaseUrl");
-            var version = config.GetValue<string>("Toast:Version");
-            var endpoint = config.GetValue<string>("Toast:Endpoints:ListMessages");
-            var requestId = useRequestId ? config.GetValue<string>("Toast:Examples:RequestId") : null;
-            var options = new ListMessagesOptions()
-            {
-                Version = version,
-                AppKey = appKey,
-                RequestId = requestId,
-                StartRequestDate = startRequestDate,
-                EndRequestDate = endRequestDate,
-                StartCreateDate = startCreateDate,
-                EndCreateDate = endCreateDate,
-                StartResultDate = startResultDate,
-                EndResultDate = endResultDate,
-                SendNo = sendNo,
-                RecipientNo = recipientNo,
-                TemplateId = templateId,
-                MsgStatus = msgStatus,
-                ResultCode = resultCode,
-                SubResultCode = subResultCode,
-                SenderGroupingKey = senderGroupingKey,
-                RecipientGroupingKey = recipientGroupingKey,
-                PageNum = pageNum,
-                PageSize = pageSize
-            };
-            var requestUrl = Smart.Format($"{baseUrl.TrimEnd('/')}/{endpoint.TrimStart('/')}", options);
-
+            var builder = new ListMessagesRequestUrlBuilder().WithSettings(this._settings).WithHeaders(this._headers);
+            builder._options.RequestId = useRequestId ? this._settings.Examples.RequestId : null;
+            builder._options.StartRequestDate = startRequestDate;
+            builder._options.EndRequestDate = endRequestDate;
+            builder._options.StartCreateDate = startCreateDate;
+            builder._options.EndCreateDate = endCreateDate;
+            builder._options.StartResultDate = startResultDate;
+            builder._options.EndResultDate = endResultDate;
+            builder._options.SendNo = sendNo;
+            builder._options.RecipientNo = recipientNo;
+            builder._options.TemplateId = templateId;
+            builder._options.MsgStatus = msgStatus;
+            builder._options.ResultCode = resultCode;
+            builder._options.SubResultCode = subResultCode;
+            builder._options.SenderGroupingKey = senderGroupingKey;
+            builder._options.RecipientGroupingKey = recipientGroupingKey;
+            builder._options.PageNum = pageNum;
+            builder._options.PageSize = pageSize;
+            var requestUrl = builder.Build();
             var http = new HttpClient();
 
             // Act
-            http.DefaultRequestHeaders.Add("X-Secret-Key", secretKey);
+            http.DefaultRequestHeaders.Add("X-Secret-Key", this._headers.SecretKey);
             var result = await http.GetAsync(requestUrl).ConfigureAwait(false);
 
             dynamic payload = await result.Content.ReadAsAsync<object>().ConfigureAwait(false);

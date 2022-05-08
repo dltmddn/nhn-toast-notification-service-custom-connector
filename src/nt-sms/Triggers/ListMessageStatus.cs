@@ -1,6 +1,9 @@
+using System;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
+
+using Aliencube.AzureFunctions.Extensions.Common;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -13,8 +16,11 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 
 using Toast.Common.Configurations;
+using Toast.Common.Models;
+using Toast.Common.Validators;
+using Toast.Sms.Bulder;
 using Toast.Sms.Configurations;
-using Toast.Sms.Models;
+
 
 namespace Toast.Sms.Triggers
 {
@@ -33,9 +39,9 @@ namespace Toast.Sms.Triggers
 
         [FunctionName(nameof(ListMessageStatus))]
         [OpenApiOperation(operationId: "Messages.Status", tags: new[] { "messages" })]
-        [OpenApiSecurity("app_key", SecuritySchemeType.ApiKey, Name = "x-app-key", In = OpenApiSecurityLocationType.Header)]
-        [OpenApiSecurity("secret_key", SecuritySchemeType.ApiKey, Name = "x-secret-key", In = OpenApiSecurityLocationType.Header)]
-        [OpenApiSecurity("function_key", SecuritySchemeType.ApiKey, Name = "x-functions-key", In = OpenApiSecurityLocationType.Header)]
+        [OpenApiSecurity("app_key", SecuritySchemeType.ApiKey, Name = "x-app-key", In = OpenApiSecurityLocationType.Header, Description = "Toast app key")]
+        [OpenApiSecurity("secret_key", SecuritySchemeType.ApiKey, Name = "x-secret-key", In = OpenApiSecurityLocationType.Header, Description = "Toast secret key")]
+        [OpenApiSecurity("function_key", SecuritySchemeType.ApiKey, Name = "x-functions-key", In = OpenApiSecurityLocationType.Header, Description = "Functions API key")]
         [OpenApiParameter(name: "startUpdateDate", Type = typeof(string), In = ParameterLocation.Query, Required = true, Description = "StartDate for message list (`yyyy-MM-dd HH:mm:ss`)")]
         [OpenApiParameter(name: "endUpdateDate", Type = typeof(string), In = ParameterLocation.Query, Required = true, Description = "endDate for message list (`yyyy-MM-dd HH:mm:ss`)")]
         [OpenApiParameter(name: "messageType", Type = typeof(string), In = ParameterLocation.Query, Required = false, Description = "message type (`SMS`/`LMS`/`MMS`/`AUTH`)")]
@@ -47,24 +53,19 @@ namespace Toast.Sms.Triggers
         {
             _logger.LogInformation("C# HTTP trigger function processed a request.");
 
-            var appKey = req.Headers["x-app-key"].ToString();
-            var secretKey = req.Headers["x-secret-key"].ToString();
-            var baseUrl = this._settings.BaseUrl;
-            var version = this._settings.Version;
-            var endpoint = this._settings.Endpoints.GetMessage;
-            var options = new ListMessageStatusRequestUrlOptions()
+            var headers = default(RequestHeaderModel);
+            try
             {
-                Version = version,
-                AppKey = appKey,
-                StartUpdateDate = req.Query["startUpdateDate"].ToString(),
-                EndUpdateDate = req.Query["endUpdateDate"].ToString(),
-                MessageType = req.Query["messageType"].ToString(),
-                PageNum = int.TryParse(req.Query["pageNum"].ToString(), out int pageNumVal) ? pageNumVal : 1,
-                PageSize = int.TryParse(req.Query["pageSize"].ToString(), out int pageSizeVal) ? pageSizeVal : 15,
-            };
-            var requestUrl = this._settings.Formatter.Format($"{baseUrl.TrimEnd('/')}/{endpoint.TrimStart('/')}", options);
+                headers = await req.To<RequestHeaderModel>(SourceFrom.Header).Validate().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return new BadRequestResult();
+            }
 
-            this._http.DefaultRequestHeaders.Add("X-Secret-Key", secretKey);
+            var requestUrl = new ListMessagesRequestUrlBuilder().WithSettings(this._settings).WithHeaders(headers).WithQueries(req).Build();
+
+            this._http.DefaultRequestHeaders.Add("X-Secret-Key", headers.SecretKey);
             var result = await this._http.GetAsync(requestUrl).ConfigureAwait(false);
 
             dynamic payload = await result.Content.ReadAsAsync<object>().ConfigureAwait(false);
